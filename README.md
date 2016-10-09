@@ -11,7 +11,7 @@ Download from http://example.com/FIXME.
 
 FIXME: explanation
 
-    $ java -jar csv-merge-0.1.0-standalone.jar [args]
+    $ java -jar csv-merge-0.1.0.jar [args]
 
 ## Options
 
