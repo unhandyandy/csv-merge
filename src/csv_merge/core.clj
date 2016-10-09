@@ -13,6 +13,7 @@
 (def cols (atom '()))
 (def colsmap (atom {}))
 (def drop-cols 6)
+(def load? (atom true))
 
 (defn check-ww [tab]
   (let [[[e11 e12] [e21]] tab]
@@ -79,7 +80,8 @@
       (swap! cnvdict assoc id @olddict))))
 
 (defn load-csv []
-  (let [loadfile (choose-file :type :open)]
+  (let [loadfile (choose-file :type :open
+                              :cancel-fn (fn [e] (reset! load? false)))]
     (if loadfile
       (let [csvstr (slurp loadfile)
             csvtab (parse-csv csvstr)]
@@ -126,12 +128,13 @@
 (defn -main
   "ask for files to merge"
   [& args]
-  (while (not (and @wwcsv @cnvcsv))
+  (while (and @load? (not (and @wwcsv @cnvcsv)))
     (load-csv))
-  (reset! cols (get-cnvcols))
-  (make-colsmap)
-  (make-wwdict)
-  (make-cnvdict)
-  (merge-dicts)
-  (save-csv (write-csv (dict->canvas @cnvdict)))
+  (when @load?
+    (reset! cols (get-cnvcols))
+    (make-colsmap)
+    (make-wwdict)
+    (make-cnvdict)
+    (merge-dicts)
+    (save-csv (write-csv (dict->canvas @cnvdict))))
   )
