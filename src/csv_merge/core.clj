@@ -16,16 +16,18 @@
 (def load? (atom true))
 
 (defn check-ww [tab]
-  (let [[[e11 e12] [e21]] tab]
+  (let [[[e11 e12] [e21] [e31]] tab]
     (and (= e11 "NO OF FIELDS")
          (= e12 "")
-         (= e21 "SET NAME"))))
+         (= e21 "SET NAME")
+         (= e31 "PROB NUMBER"))))
 
 (defn check-cnv [tab]
-  (let [[[e11 e12] [e21]] tab]
+  (let [[[e11 e12] [e21] [e31]] tab]
     (and (= e11 "Student")
          (= e12 "ID")
-         (= e21 "    Points Possible"))))
+         (= e21 "")
+         (re-matches #"\s*Points Possible" e31))))
 
 (defn ww-col-match [wwcol cnvcol]
   (let [lenww (count wwcol)
@@ -81,6 +83,8 @@
 
 (defn load-csv []
   (let [loadfile (choose-file :type :open
+                              :selection-mode :files-only
+                              ;; :dir (-> (java.io.File. ".") .getCanonicalPath)
                               :cancel-fn (fn [e] (reset! load? false)))]
     (if loadfile
       (let [csvstr (slurp loadfile)
@@ -96,8 +100,8 @@
     (merge-row row id)))
 
 (defn dict->canvas [dict]
-  (let [ids (keys dict)]
-    (loop [tab (list (vec @cols))
+  (let [ids (sort (keys dict))]
+    (loop [tab (list (nth @cnvcsv 1) @cols)
            [id & idrem] ids]
       (let [newrow (loop [row '()
                           [col & colrem] @cols]
