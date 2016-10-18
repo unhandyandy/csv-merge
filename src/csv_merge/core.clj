@@ -26,8 +26,9 @@
   (let [[[e11 e12] [e21] [e31]] tab]
     (and (= e11 "Student")
          (= e12 "ID")
-         (= e21 "")
-         (re-matches #"\s*Points Possible" e31))))
+         (or (and (= e21 "")
+                  (re-matches #"\s*Points Possible" e31))
+             (re-matches #"\s*Points Possible" e21)))))
 
 (defn ww-col-match [wwcol cnvcol]
   (let [lenww (count wwcol)
@@ -100,8 +101,11 @@
     (merge-row row id)))
 
 (defn dict->canvas [dict]
-  (let [ids (sort (keys dict))]
-    (loop [tab (list (nth @cnvcsv 1) @cols)
+  (let [ids (sort (keys dict))
+        [_ [test :as status]] @cnvcsv]
+    (loop [tab (if (= test "")
+                 (list status @cols)
+                 (list @cols))
            [id & idrem] ids]
       (let [newrow (loop [row '()
                           [col & colrem] @cols]
