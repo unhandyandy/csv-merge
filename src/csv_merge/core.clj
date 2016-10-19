@@ -101,7 +101,7 @@
     (merge-row row id)))
 
 (defn dict->canvas [dict]
-  (let [ids (sort (keys dict))
+  (let [ids (sort-by #((@cnvdict %) "Student") (keys dict))
         [_ [test :as status]] @cnvcsv]
     (loop [tab (if (= test "")
                  (list status @cols)
