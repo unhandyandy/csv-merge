@@ -111,11 +111,12 @@
                           [col & colrem] @cols]
                      (if colrem
                        (recur (conj row (or ((dict id) col) "")) colrem)
-                       (reverse row)))]
+                       (vec (reverse row))))
+            newtab (conj tab newrow)]
         (if idrem
-          (recur (conj tab (vec newrow)) idrem)
-          (reverse tab))))))
-          
+          (recur newtab idrem)
+          (reverse newtab))))))
+
 (defn save-csv [csvstr]
   (let [savefile (choose-file :type :save
                               ;;:filters ["Text" ["txt"]]
