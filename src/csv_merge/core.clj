@@ -22,6 +22,8 @@
 (def los-hash {})
 (def key-ver-pos nil)
 (def partial-credit? false)
+(def min-lo-score 0.6)
+(def num-choices 8)
 
 (defn check-ww [tab]
   (let [[[e11 e12] [e21] [e31]] tab]
@@ -208,22 +210,53 @@
 (defn lookup-in-key [v q]
   (get-in @keytab [v q]))
 
-(defn grade-one [v ansvec & {:keys [items] :or {items (range 1 (inc (count ansvec)))}}]
-  (let [correct (filter #(= (lookup-in-key v %) (get ansvec (dec %))) items)
-        nc (count correct)
-        correctlo (filter #(some #{%} correct) los-list) 
-        nclo (count correctlo)]
+(defn log2 [x]
+  (/ (Math/log x) (Math/log 2)))
+
+(defn score-one [ver prob ans]
+  (if partial-credit?
+    (let [pts (log2 num-choices)
+          parsed (parse-multi-str ans)
+          len (count parsed)
+          val (if (= len 0) 0 (- pts (log2 len)))
+          corans (lookup-in-key ver prob)]
+      (if (some #{corans} parsed) val (- val)))
+    (if (= (lookup-in-key ver prob) ans) 1 0)))
+
+(defn grade-one [v ansvec]
+  (let [numq (count ansvec)
+        items (range 1 (inc (count ansvec)))
+        scores (map #(score-one v %1 %2) items ansvec)
+        total-score (apply + scores)
+        scoreslo (map #(ansvec (dec %)) los-list)
+        rightlo (filter #(>= % min-lo-score) scoreslo)
+        nclo (count rightlo)]
     (when los-list
       (def los-hash (update los-hash nclo inc))
       (doseq [q los-list]
-        (when (some #{q} correct)
+        (when (>= (nth scores (dec q)) min-lo-score)
           (def los-hash (update los-hash (str "Q" q) inc)))))
-    nc))
+        total-score))
+                    
 
-(defn grade-exam [codepos & {:keys [items]
-                             :or {items (range 1 (- (count (first @rmkcsv)) 2))}}]
+;; (defn grade-one [v ansvec & {:keys [items] :or {items (range 1 (inc (count ansvec)))}}]
+;;   (let [correct (filter #(= (lookup-in-key v %) (get ansvec (dec %))) items)
+;;         nc (count correct)
+;;         correctlo (filter #(some #{%} correct) los-list) 
+;;         nclo (count correctlo)]
+;;     (when los-list
+;;       (def los-hash (update los-hash nclo inc))
+;;       (doseq [q los-list]
+;;         (when (some #{q} correct)
+;;           (def los-hash (update los-hash (str "Q" q) inc)))))
+;;     nc))
+
+(defn grade-exam [codepos]
   (if (> (count @keytab) 0)
-    (let [headers (conj (first @rmkcsv) "Exam Score")
+    (let [len (- (count (first @rmkcsv)) 2)
+          extot (* len (log2 num-choices))
+          items (range 1 len)
+          headers (conj (first @rmkcsv) "Exam Score")
           newtab (atom [])]
       (when los-list
         (doseq [q los-list]
@@ -234,8 +267,11 @@
       (doseq [[_ c _ & ans :as row] (rest @rmkcsv)]
         (let [v (read-string (subs c codepos (inc codepos)))
               ansvec (vec ans)
-              s (grade-one v ansvec :items items)
-              newrow (conj row (str s))]
+              s (grade-one v ansvec)
+              score (if partial-credit?
+                      (+ extot s)
+                      s)
+              newrow (conj row (str score))]
           (swap! newtab conj newrow)))
       (reset! rmkcsv (concat [headers] @newtab))
       (make-rmkdict)
@@ -249,24 +285,31 @@
         codepos (if key-ver-pos key-ver-pos
                     (input "Examcode position, 0-based: " :choices [0 1 2 3 4 5]))
         los (if los-list los-list
-                (input "Learning Outcomes?"))]
+                (input "Learning Outcomes?"))
+        partial (if partial-credit? partial-credit?
+                    (input "Partial credit? " :choices ["yes" "no"]))]
     (when (not los-list)
       (def los-list (if (> (count los) 0)
                       (map read-string (clojure.string/split los #","))
                       [])))
     (when (not key-ver-pos)
       (def key-ver-pos codepos))
+    (when (not partial-credit?)
+      (def partial-credit?
+        (case partial "yes" true "no" false false)))
     (grade-exam codepos)))
         
 (defn hash->csv [hash]
   (map (fn [[k v]] [(str k) (str v)]) los-hash))
 
 (defn parse-multi-str [ans]
-  (let [len (count ans)]
-    (if (= len 1)
-      [ans]
-      (let [trimmed (subs ans (- len 1))]
-        (clojure.string/split trimmed #",")))))
+  (if (= ans "BLANK")
+    []
+    (let [len (count ans)]
+      (if (= len 1)
+        [ans]
+        (let [trimmed (subs ans (- len 1))]
+          (clojure.string/split trimmed #","))))))
 
 (def control-frame
   (frame :title "CSV Wrangler"
