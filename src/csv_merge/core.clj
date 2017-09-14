@@ -46,18 +46,19 @@
     (every? true? tests)))
 
 (defn mk-line-readable [v n]
-  (let [nameletters (subvec v 0 8)
-        codedigits (subvec v 8 14)
-        sectiondigits (subvec v 14 19)
+  (let [namelettersraw (subvec v 0 8)
+        sectiondigits (subvec v 8 13)
+        codedigits (subvec v 13 19)
+        nameletters (map #(if (> (count %) 1) "" %) namelettersraw)
         uname (clojure.string/trim (clojure.string/lower-case (clojure.string/join nameletters)))
         code (clojure.string/join (map str codedigits))
         section (clojure.string/join (map str sectiondigits))]
-    (vec (concat [uname code section] (subvec v 19)))))
+    (vec (concat [uname section code] (subvec v 19)))))
         
 (defn mk-readable [tab]
   (let [numq (- (count (first tab)) 19)
         qseq (map #(clojure.string/join (list "EQ" (str %))) (range 1 (inc numq)))
-        header (concat ["username" "examcode" "section"] qseq)]
+        header (concat ["username" "section" "examcode"] qseq)]
     (concat [(vec header)] (map #(mk-line-readable % numq) tab))))
         
 
@@ -166,7 +167,9 @@
     (update-text)))
 
 (defn dict->canvas [dict]
-  (let [ids (sort-by #((@cnvdict %) "Student") (keys dict))
+  (let [ids (sort-by #(let [d (@cnvdict %)]
+                        (if d (d "Student") "A"))
+                        (keys dict))
         [_ [test :as status]] @cnvcsv]
     (loop [tab (if (= test "")
                  (list status @cols)
@@ -174,7 +177,13 @@
            [id & idrem] ids]
       (let [newrow (loop [row '()
                           [col & colrem] @cols]
-                     (let [row+  (conj row (or ((dict id) col) ""))]
+                     (let [row+  (conj
+                                  row
+                                  (if (@cnvdict id)
+                                    (or ((dict id) col) ((@cnvdict id) col) "")
+                                    (if (= col "SIS Login ID")
+                                      id
+                                      (or ((dict id) col) ""))))]
                        (if colrem
                          (recur row+ colrem)
                          (vec (reverse row+)))))
@@ -256,15 +265,16 @@
     (let [len (- (count (first @rmkcsv)) 2)
           extot (* len (log2 num-choices))
           items (range 1 len)
-          headers (conj (first @rmkcsv) "Exam Score")
+          headers (conj (first @rmkcsv) "This Exam Score")
           newtab (atom [])]
+      (swap! cols conj "This Exam Score")
       (when los-list
         (doseq [q los-list]
           (def los-hash (assoc los-hash (str "Q" q) 0)))
         (doseq [n (range (inc (count los-list)))]
           (def los-hash (assoc los-hash n 0)))
         (def los-hash (assoc los-hash "total" (dec (count @rmkcsv)))))
-      (doseq [[_ c _ & ans :as row] (rest @rmkcsv)]
+      (doseq [[_ _ c & ans :as row] (rest @rmkcsv)]
         (let [v (read-string (subs c codepos (inc codepos)))
               ansvec (vec ans)
               s (grade-one v ansvec)
