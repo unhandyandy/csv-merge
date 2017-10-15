@@ -10,10 +10,10 @@
 
 (def addcsv (atom nil))
 (def basecsv (atom nil))
-(def rmkcsv (atom nil))
+;;(def rmkcsv (atom nil))
 (def adddict (atom {}))
 (def basedict (atom {}))
-(def rmkdict (atom {}))
+;;(def rmkdict (atom {}))
 (def cols (atom '()))
 ;;(def colsmap (atom {}))
 (def drop-cols 6)
@@ -22,10 +22,12 @@
 (def los-list nil)
 (def los-hash {})
 (def key-ver-pos nil)
-(def partial-credit? false)
+(def partial-credit? nil)
 (def min-lo-score 0.6)
 (def num-choices 8)
 (def curve-frame (atom nil))
+(def make-funs (atom {["base" nil] ["add" nil]}))
+
 
 (defn rm-parens [str]
   (if (= str "") ""
@@ -54,17 +56,20 @@
         tests (map #(< (count %) 2) (list e11 e12 e13 e21 e31))]
     (every? true? tests)))
 
+(defn clean-blanks [str]
+  (map #(if (> (count %) 1) "" %) str))
+
 (defn mk-line-readable [v n]
-  (let [nameletters (subvec v 0 8)
-        sectiondigits (subvec v 8 13)
-        codedigits (subvec v 13 19)
+  (let [nameletters (clean-blanks (subvec v 0 8))
+        sectiondigits (clean-blanks (subvec v 8 13))
+        codedigits (clean-blanks (subvec v 13 19))
         uname (clojure.string/trim (clojure.string/lower-case (clojure.string/join nameletters)))
         code (clojure.string/join (map str codedigits))
         section (clojure.string/join (map str sectiondigits))]
     (vec (concat [uname section code] (subvec v 19)))))
 
 (defn mk-readable [tab]
-  (let [numq #spy/p (- (count (first tab)) 19)
+  (let [numq (- (count (first tab)) 19)
         qseq (map #(clojure.string/join (list "EQ" (str %))) (range 1 (inc numq)))
         header (concat ["username" "section" "examcode"] qseq)]
     (concat [(vec header)] (map #(mk-line-readable % numq) tab))))
@@ -93,20 +98,36 @@
         (swap! dict assoc id rowdict)))
     @dict))
 
-(defn make-rmkdict []
-  (let [tabmod @rmkcsv]
-    (reset! adddict (tab->mapmap tabmod 0 1))))
+(defn update-text [])
 
-(defn make-wwdict []
-  ;; check if addcsv is defined, otherwise we must be merging from rmk
-  (if @addcsv
-    (reset! adddict (tab->mapmap (drop 1 @addcsv) 1 drop-cols))
-    (make-rmkdict)))
+(defn make-rmkdict
+  ([]
+   (let [tabmod @addcsv]
+     (reset! adddict (tab->mapmap tabmod 0 1))
+     (update-text)))
+  ([targ]
+   (let [targatom (if (= targ "base") basedict adddict)
+         targcsv (if (= targ "base") @basecsv @addcsv)]
+    (reset! targatom (tab->mapmap targcsv 0 1))
+    (update-text))))
+
+(defn make-wwdict
+  ([]
+   (reset! adddict (tab->mapmap (drop 1 @addcsv) 1 drop-cols)))
+  ([targ]
+   (let [targatom (if (= targ "base") basedict adddict)
+         targcsv (if (= targ "base") @basecsv @addcsv)]
+    (reset! targatom (tab->mapmap (drop 1 targcsv) 1 drop-cols))
+    (update-text))))
 
 (defn make-cnvdict [targ]
   (let [targatom (if (= targ "base") basedict adddict)
         targcsv (if (= targ "base") @basecsv @addcsv)]
     (reset! targatom (tab->mapmap targcsv 2 0))))
+
+(defn update-dict [targ]
+  (let [makefun (@make-funs targ)]
+    (makefun targ)))
 
 ;; (defn get-rmkcols []
 ;;   ;;(drop 1 (first @rmkcsv))
@@ -114,7 +135,7 @@
 
 (defn get-addcols []
   ;;(drop drop-cols (second @addcsv))
-  (keys (@adddict "")))
+  (keys (second (first @adddict))))
 
 (defn get-basecols []
   ;;(first @basecsv)
@@ -133,12 +154,70 @@
 ;;           (swap! colsmap assoc c m)
 ;;           (swap! cols postjoin c))))))
 
+(def control-frame)
+(defn dict->canvas [] )
+
+(defn keys-add-col
+  "Add first column to @keytab showing index"
+  [tab]
+  (map #(into [(str %1)] %2)
+       (range 10)
+       tab))
+
+(defn update-text []
+  (let [cnvfd (select control-frame [:#base-text])
+        tomergefd (select control-frame [:#add-text])
+        keyfd (select control-frame [:#key-text])
+        ;;tomergetxt (if @addcsv @addcsv @rmkcsv)
+        ]
+    (reset! basecsv (dict->canvas @basedict))
+    (text! cnvfd (if @basedict (write-csv @basecsv) ""))
+    (text! tomergefd (if @adddict (write-csv @addcsv) ""))
+    (text! keyfd (if @keytab (write-csv @keytab) ""))))
+
+(defn get-caret-pos-in
+  "get position 0f cursor in the named text frame."
+  [fr]
+  (let [f (if (= fr "base")
+            (select control-frame [:#base-text])
+            (if (= fr "add")
+              (select control-frame [:#add-text])
+              (select control-frame [:#key-text])))]
+    (-> f .getCaretPosition)))
+
+(defn get-line-num-in
+  "get line number in given text of given cursor pos"
+  [txt pos]
+  (count (re-seq #"\n" (subs txt 0 pos))))
+
+(defn get-username-in-rmk
+  "get the username of the person where the cursor currently is in the add field, if that field is a remark file"
+  []
+  (when (= (@make-funs "add") make-rmkdict)
+    (let [pos (get-caret-pos-in "add")
+          txt (text (select control-frame [:#add-text]))
+          line (get-line-num-in txt pos)]
+      (first (nth @addcsv line)))))
+
 (defn update-cols []
   (let [addcols (get-addcols)
         basecols (get-basecols)]
-    (doseq [c addcols]
-      (if-not (some #{c} basecols) 
+    (doseq [c (concat basecols addcols)]
+      (if-not (some #{c} @cols) 
         (swap! cols postjoin c)))))
+
+(defn clear-all-data []
+  (reset! basecsv nil)
+  (reset! addcsv nil)
+  (reset! adddict {})
+  (reset! basedict {})
+  (reset! cols '())
+  (reset! keytab [])
+  (def los-list nil)
+  (def los-hash {})
+  (def key-ver-pos nil)
+  (def partial-credit? nil)
+  (update-text))
 
 (defn merge-row [row id]
   (when (@basedict id)
@@ -150,16 +229,6 @@
 (def control-frame)
 
 (def dict->canvas)
-
-(defn update-text []
-  (let [cnvfd (select control-frame [:#base-text])
-        tomergefd (select control-frame [:#add-text])
-        keyfd (select control-frame [:#key-text])
-        tomergetxt (if @addcsv @addcsv @rmkcsv)]
-    (reset! basecsv (dict->canvas @basedict))
-    (text! cnvfd (write-csv @basecsv))
-    (text! tomergefd (write-csv tomergetxt))
-    (text! keyfd (write-csv @keytab))))
 
 (defn load-csv [targ]
   (let [csvatom (if (= targ "base") basecsv addcsv)
@@ -173,14 +242,18 @@
             csvtab (parse-csv csvstr)]
         (reset! csvatom csvtab)
         (if (check-ww csvtab)
-          (make-wwdict)
+          (do (swap! make-funs assoc targ make-wwdict)
+              (make-wwdict))
           (if (check-cnv csvtab)
-              (make-cnvdict dicttarg)
-              (when (check-remark csvtab)
-                (reset! rmkcsv (mk-readable csvtab))
-                (make-rmkdict)
-            )))
-        (reset! cols (get-basecols))
+            (do (swap! make-funs assoc targ make-cnvdict)
+                (make-cnvdict dicttarg))
+            (if (check-remark csvtab)
+              (do (swap! make-funs assoc targ make-rmkdict)
+                  (reset! csvatom (mk-readable csvtab))
+                  (make-rmkdict))
+              (println "Unknown type of csv file.")
+              )))
+        (update-cols)
         ;;(make-colsmap)
         (update-text)
         ))))
@@ -189,32 +262,84 @@
   ([] (merge-dicts "col"))
   ([rorc]
    (update-cols)
-   (let [dict (if (> (count @adddict) 0) @adddict @rmkdict)]
+   (let [dict @adddict]
      ;;(println "here")
      (doseq [[id row] dict]
        (if (= rorc "row")
-         (swap! basedict assoc id row)
+         (when (nil? (@basedict id))
+           (swap! basedict assoc id row))
          (merge-row row id)))
      (reset! basecsv (dict->canvas @basedict))
      (update-text))))
 
-(defn dict->canvas [dict]
-  (let [ids (sort-by #((@basedict %) "Student") (keys dict))
-        [_ [test :as status]] @basecsv]
-    (loop [tab (if (= test "")
-                 (list status @cols)
-                 (list @cols))
+;; (defn dict->canvas [dict]
+;;   (let [ids (sort-by #((@basedict %) "Student") (keys dict))
+;;         [_ [test :as status]] @basecsv]
+;;     (loop [tab (if (= test "")
+;;                  (list status @cols)
+;;                  (list @cols))
+;;            [id & idrem] ids]
+;;       (let [newrow (loop [row '()
+;;                           [col & colrem] @cols]
+;;                      (let [row+  (conj row (or ((dict id) col) ""))]
+;;                        (if colrem
+;;                          (recur row+ colrem)
+;;                          (vec (reverse row+)))))
+;;             newtab (conj tab newrow)]
+;;         (if idrem
+;;           (recur newtab idrem)
+;;           (reverse newtab))))))
+
+(defn make-csv-row
+  "Make csv row from dict corresponding to key id and columns cols"
+  [id cols dict]
+  (loop [row '()
+         [col & colrem] cols]
+    (let [row+  (conj
+                 row
+                 (if (@basedict id)
+                   (or ((dict id) col) ((@basedict id) col) "")
+                   (if (= col "SIS Login ID")
+                     id
+                     (or ((dict id) col) ""))))]
+      (if colrem
+        (recur row+ colrem)
+        (vec (reverse row+))))))
+
+(defn make-csv-tab
+  "Make csv table from dict, ids, cols, initial table tab0"
+  [ids cols dict tab0]
+  (loop [tab tab0
            [id & idrem] ids]
-      (let [newrow (loop [row '()
-                          [col & colrem] @cols]
-                     (let [row+  (conj row (or ((dict id) col) ""))]
-                       (if colrem
-                         (recur row+ colrem)
-                         (vec (reverse row+)))))
+      (let [newrow (make-csv-row id cols dict)
             newtab (conj tab newrow)]
         (if idrem
           (recur newtab idrem)
-          (reverse newtab))))))
+          (reverse newtab)))))
+
+(defn dict->canvas [dict]
+  (let [ids (sort-by #(let [d (@basedict %)]
+                        (if d (d "Student") "A"))
+                     (filter #(> (count %) 0) (keys dict)))
+        [_ [test :as status] pp] @basecsv
+        dictcols (keys (second (first dict)))
+        tab0 (if (= test "")
+               (list  pp status dictcols)
+               (list  pp dictcols))]
+    (make-csv-tab ids dictcols dict tab0)
+    ))
+
+;;convert remark format dict to canvas format dict
+(defn rmk->canvas 
+  "convert remark format dict to canvas format dict"
+  [dict]
+  (let [ids (sort-by #(let [d (@basedict %)]
+                        (if d (d "Student") "A"))
+                     (filter #(> (count %) 0) (keys dict)))
+        dictcols (concat (take 4 @cols)
+                         (drop 2 (keys (second (first dict)))))]
+    (make-csv-tab ids dictcols dict (list dictcols))))
+  
 
 (defn save-csv [csvstr]
   (let [savefile (choose-file :type :save
@@ -236,12 +361,18 @@
   (let [keyfile (choose-file :type :open
                              :selection-mode :files-only)]
     (when keyfile
-      (let [keystr (slurp keyfile)]
-        (reset! keytab (vec (parse-csv keystr))))
+      (let [keystr (slurp keyfile)
+            keyexp (atom keystr)]
+        (while (< (count (re-seq #"\n" @keyexp)) 10)
+          (swap! keyexp str keystr))
+        (let [key1 (parse-csv @keyexp)
+              key2 (take 10 key1)
+              key3 (keys-add-col key2)]
+          (reset! keytab (vec key3))))
       (update-text))))
 
 (defn lookup-in-key [v q]
-  (get-in @keytab [v q]))
+  (get-in @keytab [v (inc q)]))
 
 (defn log2 [x]
   (/ (Math/log x) (Math/log 2)))
@@ -270,7 +401,7 @@
         items (range 1 (inc (count ansvec)))
         scores (map #(score-one v %1 %2) items ansvec)
         total-score (apply + scores)
-        scoreslo (map #(ansvec (dec %)) los-list)
+        scoreslo (map #(nth scores (dec %)) los-list)
         rightlo (filter #(>= % min-lo-score) scoreslo)
         nclo (count rightlo)]
     (when los-list
@@ -279,56 +410,48 @@
         (when (>= (nth scores (dec q)) min-lo-score)
           (def los-hash (update los-hash (str "Q" q) inc)))))
         total-score))
-                    
-
-;; (defn grade-one [v ansvec & {:keys [items] :or {items (range 1 (inc (count ansvec)))}}]
-;;   (let [correct (filter #(= (lookup-in-key v %) (get ansvec (dec %))) items)
-;;         nc (count correct)
-;;         correctlo (filter #(some #{%} correct) los-list) 
-;;         nclo (count correctlo)]
-;;     (when los-list
-;;       (def los-hash (update los-hash nclo inc))
-;;       (doseq [q los-list]
-;;         (when (some #{q} correct)
-;;           (def los-hash (update los-hash (str "Q" q) inc)))))
-;;     nc))
-
+                   
 (defn grade-exam [codepos]
   (if (> (count @keytab) 0)
-    (let [len (- (count (first @rmkcsv)) 2)
+    (let [len (- (count (first @addcsv)) 2)
           extot (* len (log2 num-choices))
           items (range 1 len)
-          headers (conj (first @rmkcsv) "Exam Score")
+          headers (conj (first @addcsv) "This Exam Score")
           newtab (atom [])]
+      (swap! cols postjoin "This Exam Score")
       (when los-list
         (doseq [q los-list]
           (def los-hash (assoc los-hash (str "Q" q) 0)))
         (doseq [n (range (inc (count los-list)))]
           (def los-hash (assoc los-hash n 0)))
-        (def los-hash (assoc los-hash "total" (dec (count @rmkcsv)))))
-      (doseq [[_ c _ & ans :as row] (rest @rmkcsv)]
-        (let [v (read-string (subs c codepos (inc codepos)))
-              ansvec (vec ans)
-              s (grade-one v ansvec)
-              score (if partial-credit?
-                      (+ extot s)
-                      s)
-              newrow (conj row (str score))]
-          (swap! newtab conj newrow)))
-      (reset! rmkcsv (concat [headers] @newtab))
-      (make-rmkdict)
+        (def los-hash (assoc los-hash "total" (dec (count @addcsv)))))
+      (doseq [[_ _ c & ans :as row] (rest @addcsv)]
+        (if (> (count  c) 5)
+          (let [v (read-string (subs c codepos (inc codepos)))
+                ansvec (vec ans)
+                s (grade-one v ansvec)
+                score (if partial-credit?
+                        (+ extot s)
+                        s)
+                newrow (conj row (str score))]
+            (swap! newtab conj newrow))
+          (swap! newtab conj row)))
+      (reset! addcsv (concat [headers] @newtab))
+      (update-dict "add")
+      ;;(make-rmkdict)
+      (merge-dicts "col")
       (update-text))
     (alert "No answer key loaded."
            :type :error)))
 
 (defn grade-exam-init []
-  (let [numq (- (count (first @rmkcsv)) 3)
+  (let [numq (- (count (first @addcsv)) 3)
         qseq (range 1 (inc numq))
         codepos (if key-ver-pos key-ver-pos
                     (input "Examcode position, 0-based: " :choices [0 1 2 3 4 5]))
         los (if los-list los-list
                 (input "Learning Outcomes?"))
-        partial (if partial-credit? partial-credit?
+        partial (if (not (nil? partial-credit?)) partial-credit?
                     (input "Partial credit? " :choices ["yes" "no"]))]
     (when (not los-list)
       (def los-list (if (> (count los) 0)
@@ -360,6 +483,27 @@
           (swap! hist assoc n 1))))
     ;;(println (count @hist))
     @hist))
+
+(defn fill-hist
+  "fill in missing values in histogram (with 0s)"
+  [hist]
+  (let [ks (keys hist)
+        min (apply min ks)
+        max (apply max ks)
+        newhist (atom hist)]
+    (doseq [i (range min (inc max))]
+      (when (nil? (hist (float i)))
+        (swap! newhist assoc i 0)))
+    @newhist))
+
+(defn hist->csv
+  "convert histogram hash to csv string"
+  [hist]
+  (let [hh (into (sorted-map) hist)
+        csv (atom "")]
+    (doseq [[k v] hh]
+      (swap! csv str "\n" (str k) "," (str v)))
+    @csv))
 
 (defn mk-percentiles [nums]
   (let [res (atom [0])]
@@ -404,6 +548,20 @@
               cval (Float/parseFloat (config c :text))]
           (swap! res assoc rval cval))))
     (into (sorted-map) @res))))
+
+;; conversion in progress...
+(defn put-curve-points [curve]
+  (if-let [col (try
+                 (map #(config % :items) (config (select @curve-frame [:#curve]) :items))
+                 (catch Exception e
+                   nil))]
+    (doseq [[b r a c] col]
+      (if (= "" (config a :text)) (.doClick b))
+      (let [rval (Float/parseFloat (config r :text))
+            cval (interpolate curve rval)]
+        (config! c :text (str cval)))
+      )))
+          
 
 (defn update-curve-scores []
   (let [curvecol (select @curve-frame [:#curve-scores])
@@ -497,7 +655,42 @@
     (swap! cols postjoin colname)
     (reset! basedict @newdict)
     (update-text)))
-        
+
+(defn save-curve [e]
+  (let [savefile (choose-file :type :save
+                              ;;:filters ["Text" ["txt"]]
+                              )
+        clobber (atom false)]
+    (if (.exists  savefile)
+      (let [dial (dialog :content (str "File " savefile " exists, do you want to overwrite it?")
+                         :success-fn (fn [e] (reset! clobber true))
+                         :type :warning
+                         :option-type :yes-no)]
+        (pack! dial)
+        (show! dial))
+      (reset! clobber true))
+    (if (and savefile clobber)
+      (spit savefile (get-curve-points)))))
+
+(defn load-curve [targ]
+  (let [loadfile (choose-file :type :open
+                              :selection-mode :files-only)]
+    (when loadfile
+      (let [curve (load-string (slurp loadfile))]
+        (put-curve-points curve)))))
+
+(defn save-hist 
+  "Save histogram of current assignment"
+  [e]
+  (let [chooser (select @curve-frame [:#assignment-tocurve])
+        assign (selection chooser)
+        scorestr (get-scores assign)
+        scores (parse-to-number-list scorestr)
+        hist (mk-histogram scores)
+        filled (fill-hist hist)
+        csv (hist->csv filled)]
+    (save-csv csv)))
+    
 (defn mk-curve-frame []
   (let [chooser (combobox :id :assignment-tocurve
                           :model @cols
@@ -515,11 +708,32 @@
                                 :items [chooser 
                                         (button :text "Apply"
                                                 :listen [:action doit]
-                                                :size [100 :by 30]
-                                                :halign :center)])
+                                                :size [80 :by 30]
+                                                :halign :center)
+                                        (label :text " "
+                                               :size [40 :by 30]
+                                               :halign :center)
+                                        (button :text "Save Curve"
+                                                :listen [:action save-curve]
+                                                :size [120 :by 30]
+                                                :halign :center)
+                                        (button :text "Load Curve"
+                                                :listen [:action load-curve]
+                                                :size [120 :by 30]
+                                                :halign :center)
+                                        (label :text " "
+                                               :size [40 :by 30]
+                                               :halign :center)
+                                        (button :text "Save Hist."
+                                                :listen [:action save-hist]
+                                                :size [120 :by 30]
+                                                :halign :center)]
+)
                                (scrollable (horizontal-panel
                                             :id :histpane
                                             :items []))])]))))
+
+(def vertical-break 10)
 
 (def control-frame
   (frame :title "CSV Wrangler"
@@ -537,6 +751,9 @@
                                      :listen [:action (fn [e] (load-csv "add"))]
                                      :size [200 :by 30]
                                      :halign :center)
+                             (label :text " "
+                                   :size [200 :by vertical-break]
+                                   :halign :center)
                              (button :id :merge-col
                                      :text "Merge Columns"
                                      :listen [:action (fn [e] (merge-dicts "col"))]
@@ -548,6 +765,9 @@
                                      :size [200 :by 30]
                                      :halign :center)
                              ;; Load Answer key
+                             (label :text " "
+                                    :size [200 :by vertical-break]
+                                    :halign :center)
                              (button :id :load-key
                                      :text "Load answer key"
                                      :listen [:action (fn [e] (read-key))]
@@ -558,6 +778,9 @@
                                      :listen [:action (fn [e] (grade-exam-init))]
                                      :size [200 :by 30]
                                      :halign :center)
+                             (label :text " "
+                                    :size [200 :by vertical-break]
+                                    :halign :center)
                              (button :id :gradecurvebutt
                                      :text "Curve Assign."
                                      :listen [:action (fn [e]
@@ -566,6 +789,9 @@
                                      :size [200 :by 30]
                                      :halign :center)
                              ;; save merged (w canvas format)
+                             (label :text " "
+                                    :size [200 :by vertical-break]
+                                    :halign :center)
                              (button :id :save-merged
                                      :text "Save Canvas CSV"
                                      :listen [:action
@@ -578,15 +804,26 @@
                                      :text "Save Remark CSV"
                                      :listen [:action
                                               (fn [e]
-                                                (save-csv (write-csv (dict->canvas @rmkdict)))) ]
+                                                (save-csv (write-csv (rmk->canvas @adddict)))) ]
                                      :size [200 :by 30]
                                      :halign :center)
                              ;; save LOs as csv
-                             (button :id :save-los
+                             (button :id :clear-all-data
                                      :text "Save LOs CSV"
                                      :listen [:action
                                               (fn [e]
                                                 (save-csv (write-csv (hash->csv los-hash)))) ]
+                                     :size [200 :by 30]
+                                     :halign :center)
+                             ;; clear data
+                             (label :text " "
+                                    :size [200 :by vertical-break]
+                                    :halign :center)
+                             (button :id :save-los
+                                     :text "Clear All Data"
+                                     :listen [:action
+                                              (fn [e]
+                                                (clear-all-data)) ]
                                      :size [200 :by 30]
                                      :halign :center)
                              ])
@@ -626,6 +863,7 @@
                              ])
                     ])))
 
+;; Uncomment before building!!!
 (config! control-frame :on-close :exit)
 
 (defn -main
