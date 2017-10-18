@@ -336,8 +336,9 @@
   (let [ids (sort-by #(let [d (@basedict %)]
                         (if d (d "Student") "A"))
                      (filter #(> (count %) 0) (keys dict)))
+        sorteddict (sort-by #(count (second %)) < dict)
         dictcols (concat (take 4 @cols)
-                         (drop 2 (keys (second (first dict)))))]
+                         (drop 2 (keys (second (last sorteddict)))))]
     (make-csv-tab ids dictcols dict (list dictcols))))
   
 
@@ -406,6 +407,7 @@
         nclo (count rightlo)]
     (when los-list
       (def los-hash (update los-hash nclo inc))
+      (def los-hash (update los-hash "total" inc))
       (doseq [q los-list]
         (when (>= (nth scores (dec q)) min-lo-score)
           (def los-hash (update los-hash (str "Q" q) inc)))))
@@ -424,7 +426,7 @@
           (def los-hash (assoc los-hash (str "Q" q) 0)))
         (doseq [n (range (inc (count los-list)))]
           (def los-hash (assoc los-hash n 0)))
-        (def los-hash (assoc los-hash "total" (dec (count @addcsv)))))
+        (def los-hash (assoc los-hash "total" 0)))
       (doseq [[_ _ c & ans :as row] (rest @addcsv)]
         (if (> (count  c) 5)
           (let [v (read-string (subs c codepos (inc codepos)))
@@ -452,7 +454,7 @@
         los (if los-list los-list
                 (input "Learning Outcomes?"))
         partial (if (not (nil? partial-credit?)) partial-credit?
-                    (input "Partial credit? " :choices ["yes" "no"]))]
+                    (input "Partial credit? " :choices ["no" "yes"] :value "no"))]
     (when (not los-list)
       (def los-list (if (> (count los) 0)
                       (map read-string (clojure.string/split los #","))
