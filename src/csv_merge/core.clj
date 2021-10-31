@@ -4,7 +4,12 @@
         seesaw.core
         seesaw.chooser
         flatland.ordered.map
-        ))
+        ;;clojure.data
+        )
+  (:require [clojure.string :as str]
+            [table.core :as t]
+            [table.width :as tw])
+  )
 
 (native!)
 
@@ -18,16 +23,19 @@
 ;;(def colsmap (atom {}))
 (def drop-cols 6)
 (def load? (atom true))
-(def keytab (atom []))
+;;(def keytab (atom []))
 (def los-list nil)
 (def los-hash {})
-(def key-ver-pos nil)
+;;(def key-ver-pos nil)
 (def partial-credit? nil)
 (def min-lo-score 0.6)
 (def num-choices 8)
 (def curve-frame (atom nil))
-(def make-funs (atom {["base" nil] ["add" nil]}))
+(def make-funs (atom {"base" nil, "add" nil}))
 
+(defn pptab [s]
+  ;;(with-redefs [tw/*width* 1000]
+    (with-out-str (t/table s)))
 
 (defn rm-parens [str]
   (if (= str "") ""
@@ -44,16 +52,22 @@
          (= e31 "PROB NUMBER"))))
 
 (defn check-cnv [tab]
-  (let [[[e11 e12] [e21] [e31]] tab]
-    (and (= e11 "Student")
-         (= e12 "ID")
-         (or (and (= e21 "")
-                  (re-matches #"\s*Points Possible" e31))
-             (re-matches #"\s*Points Possible" e21)))))
+  (let [[[e11 e12 e13 e14] [e21]] tab]
+    ;;(println (first e31))
+    (and (= e12 "ID")
+         (re-matches #".?Student" e11)
+         (= e14 "Section")
+         ;; (or (and (= e21 "")
+         ;;          (re-matches #"\s*Points Possible" e31))
+         ;;     (re-matches #"\s*Points Possible" e21))
+         )))
 
 (defn check-remark [tab]
+  ;;(println tab)
   (let [[[e11 e12 e13] [e21] [e31]] tab
-        tests (map #(< (count %) 2) (list e11 e12 e13 e21 e31))]
+        tests (map #(or (< (count %) 2)
+                        (= % "BLANK"))
+                        (list e11 e12 e13 e21 e31))]
     (every? true? tests)))
 
 (defn clean-blanks [str]
@@ -64,9 +78,12 @@
         sectiondigits (clean-blanks (subvec v 8 13))
         codedigits (clean-blanks (subvec v 13 19))
         uname (clojure.string/trim (clojure.string/lower-case (clojure.string/join nameletters)))
+        unameun (if (> (count uname) 0)
+                  uname
+                  (str "unknown-" (rand-int 1000)))
         code (clojure.string/join (map str codedigits))
         section (clojure.string/join (map str sectiondigits))]
-    (vec (concat [uname section code] (subvec v 19)))))
+    (vec (concat [unameun section code] (subvec v 19)))))
 
 (defn mk-readable [tab]
   (let [numq (- (count (first tab)) 19)
@@ -139,7 +156,8 @@
 
 (defn get-basecols []
   ;;(first @basecsv)
-  (keys (@basedict "")))
+  ;;(keys (@basedict "")))
+  (keys (second (first @basedict))))
 
 (defn find-first-match [item coll]
   (first (drop-while #(not (col-match item %)) coll)))
@@ -167,22 +185,24 @@
 (defn update-text []
   (let [cnvfd (select control-frame [:#base-text])
         tomergefd (select control-frame [:#add-text])
-        keyfd (select control-frame [:#key-text])
+        ;;keyfd (select control-frame [:#key-text])
         ;;tomergetxt (if @addcsv @addcsv @rmkcsv)
         ]
     (reset! basecsv (dict->canvas @basedict))
     (text! cnvfd (if @basedict (write-csv @basecsv) ""))
     (text! tomergefd (if @adddict (write-csv @addcsv) ""))
-    (text! keyfd (if @keytab (write-csv @keytab) ""))))
+    ;;(text! keyfd (if @keytab (write-csv @keytab) ""))
+    ))
 
 (defn get-caret-pos-in
-  "get position 0f cursor in the named text frame."
+  "get position of cursor in the named text frame."
   [fr]
   (let [f (if (= fr "base")
             (select control-frame [:#base-text])
-            (if (= fr "add")
+            (when (= fr "add")
               (select control-frame [:#add-text])
-              (select control-frame [:#key-text])))]
+              ;;(select control-frame [:#key-text])
+              ))]
     (-> f .getCaretPosition)))
 
 (defn get-line-num-in
@@ -212,10 +232,10 @@
   (reset! adddict {})
   (reset! basedict {})
   (reset! cols '())
-  (reset! keytab [])
+  ;;(reset! keytab [])
   (def los-list nil)
   (def los-hash {})
-  (def key-ver-pos nil)
+  ;;(def key-ver-pos nil)
   (def partial-credit? nil)
   (update-text))
 
@@ -240,6 +260,7 @@
     (when loadfile
       (let [csvstr (slurp loadfile)
             csvtab (parse-csv csvstr)]
+        ;;(println csvstr)
         (reset! csvatom csvtab)
         (if (check-ww csvtab)
           (do (swap! make-funs assoc targ make-wwdict)
@@ -258,10 +279,20 @@
         (update-text)
         ))))
 
+(defn init-base-cols []
+  (doseq [[id row] @basedict]
+    (let [ra (atom row)]
+      (doseq [c @cols]
+        (when (not (@ra c))
+          (swap! ra assoc c "")))
+      (swap! basedict assoc id @ra))))
+
 (defn merge-dicts
   ([] (merge-dicts "col"))
+  ;; rorc = "row" or "col"
   ([rorc]
    (update-cols)
+   (init-base-cols)
    (let [dict @adddict]
      ;;(println "here")
      (doseq [[id row] dict]
@@ -309,19 +340,23 @@
 (defn make-csv-tab
   "Make csv table from dict, ids, cols, initial table tab0"
   [ids cols dict tab0]
-  (loop [tab tab0
+  (if ids
+    (loop [tab tab0
            [id & idrem] ids]
       (let [newrow (make-csv-row id cols dict)
             newtab (conj tab newrow)]
         (if idrem
           (recur newtab idrem)
-          (reverse newtab)))))
+          (reverse newtab))))
+    tab0))
+  
 
 (defn dict->canvas [dict]
   (let [ids (sort-by #(let [d (@basedict %)]
                         (if d (d "Student") "A"))
                      (filter #(> (count %) 0) (keys dict)))
         [_ [test :as status] pp] @basecsv
+        ;; What if not all cols are present in (first dict)?
         dictcols (keys (second (first dict)))
         tab0 (if (= test "")
                (list  pp status dictcols)
@@ -336,9 +371,10 @@
   (let [ids (sort-by #(let [d (@basedict %)]
                         (if d (d "Student") "A"))
                      (filter #(> (count %) 0) (keys dict)))
-        sorteddict (sort-by #(count (second %)) < dict)
+        sorteddict (sort-by #(count (second (first (second %)))) < dict)
         dictcols (concat (take 4 @cols)
-                         (drop 2 (keys (second (last sorteddict)))))]
+                         (drop 2 (keys (second (nth sorteddict 3)))))]
+    ;;(println dictcols)
     (make-csv-tab ids dictcols dict (list dictcols))))
   
 
@@ -355,122 +391,123 @@
         (pack! dial)
         (show! dial))
       (reset! clobber true))
-    (if (and savefile clobber)
+    (if (and savefile @clobber)
       (spit savefile csvstr))))
 
-(defn read-key []
-  (let [keyfile (choose-file :type :open
-                             :selection-mode :files-only)]
-    (when keyfile
-      (let [keystr (slurp keyfile)
-            keyexp (atom keystr)]
-        (while (< (count (re-seq #"\n" @keyexp)) 10)
-          (swap! keyexp str keystr))
-        (let [key1 (parse-csv @keyexp)
-              key2 (take 10 key1)
-              key3 (keys-add-col key2)]
-          (reset! keytab (vec key3))))
-      (update-text))))
+;;ADD WEIGHTS!
+;; (defn read-key []
+;;   (let [keyfile (choose-file :type :open
+;;                              :selection-mode :files-only)]
+;;     (when keyfile
+;;       (let [keystr (slurp keyfile)
+;;             keyexp (atom keystr)]
+;;         (while (< (count (re-seq #"\n" @keyexp)) 10)
+;;           (swap! keyexp str keystr))
+;;         (let [key1 (parse-csv @keyexp)
+;;               key2 (take 10 key1)
+;;               key3 (keys-add-col key2)]
+;;           (reset! keytab (vec key3))))
+;;       (update-text))))
 
-(defn lookup-in-key [v q]
-  (get-in @keytab [v (inc q)]))
+;; (defn lookup-in-key [v q]
+;;   (clojure.string/upper-case (get-in @keytab [v (inc q)])))
 
-(defn log2 [x]
-  (/ (Math/log x) (Math/log 2)))
+;; (defn log2 [x]
+;;   (/ (Math/log x) (Math/log 2)))
 
-(defn parse-multi-str [ans]
-  (if (= ans "BLANK")
-    []
-    (let [len (count ans)]
-      (if (= len 1)
-        [ans]
-        (let [trimmed (subs ans (- len 1))]
-          (clojure.string/split trimmed #","))))))
+;; (defn parse-multi-str [ans]
+;;   (if (= ans "BLANK")
+;;     []
+;;     (let [len (count ans)]
+;;       (if (= len 1)
+;;         [ans]
+;;         (let [trimmed (subs ans (- len 1))]
+;;           (clojure.string/split trimmed #","))))))
 
-(defn score-one [ver prob ans]
-  (if partial-credit?
-    (let [pts (log2 num-choices)
-          parsed (parse-multi-str ans)
-          len (count parsed)
-          val (if (= len 0) 0 (- pts (log2 len)))
-          corans (lookup-in-key ver prob)]
-      (if (some #{corans} parsed) val (- val)))
-    (if (= (lookup-in-key ver prob) ans) 1 0)))
+;; (defn score-one [ver prob ans]
+;;   (if partial-credit?
+;;     (let [pts (log2 num-choices)
+;;           parsed (parse-multi-str ans)
+;;           len (count parsed)
+;;           val (if (= len 0) 0 (- pts (log2 len)))
+;;           corans (lookup-in-key ver prob)]
+;;       (if (some #{corans} parsed) val (- val)))
+;;     (if (str/includes? (lookup-in-key ver prob) ans) 1 0)))
 
-(defn grade-one [v ansvec]
-  (let [numq (count ansvec)
-        items (range 1 (inc (count ansvec)))
-        scores (map #(score-one v %1 %2) items ansvec)
-        total-score (apply + scores)
-        scoreslo (map #(nth scores (dec %)) los-list)
-        rightlo (filter #(>= % min-lo-score) scoreslo)
-        nclo (count rightlo)]
-    (when los-list
-      (def los-hash (update los-hash nclo inc))
-      (def los-hash (update los-hash "total" inc))
-      (doseq [q los-list]
-        (when (>= (nth scores (dec q)) min-lo-score)
-          (def los-hash (update los-hash (str "Q" q) inc)))))
-        total-score))
+;; (defn grade-one [v ansvec]
+;;   (let [numq (count ansvec)
+;;         items (range 1 (inc (count ansvec)))
+;;         scores (map #(score-one v %1 %2) items ansvec)
+;;         total-score (apply + scores)
+;;         scoreslo (map #(nth scores (dec %)) los-list)
+;;         rightlo (filter #(>= % min-lo-score) scoreslo)
+;;         nclo (count rightlo)]
+;;     (when los-list
+;;       (def los-hash (update los-hash (str nclo) inc))
+;;       (def los-hash (update los-hash "total" inc))
+;;       (doseq [q los-list]
+;;         (when (>= (nth scores (dec q)) min-lo-score)
+;;           (def los-hash (update los-hash (str "Q" q) inc)))))
+;;         total-score))
                    
-(defn grade-exam [codepos]
-  (if (> (count @keytab) 0)
-    (let [len (- (count (first @addcsv)) 2)
-          extot (* len (log2 num-choices))
-          items (range 1 len)
-          headers (conj (first @addcsv) "This Exam Score")
-          newtab (atom [])]
-      (swap! cols postjoin "This Exam Score")
-      (when los-list
-        (doseq [q los-list]
-          (def los-hash (assoc los-hash (str "Q" q) 0)))
-        (doseq [n (range (inc (count los-list)))]
-          (def los-hash (assoc los-hash n 0)))
-        (def los-hash (assoc los-hash "total" 0)))
-      (doseq [[_ _ c & ans :as row] (rest @addcsv)]
-        (if (> (count  c) 5)
-          (let [v (read-string (subs c codepos (inc codepos)))
-                ansvec (vec ans)
-                s (grade-one v ansvec)
-                score (if partial-credit?
-                        (+ extot s)
-                        s)
-                newrow (conj row (str score))]
-            (swap! newtab conj newrow))
-          (swap! newtab conj row)))
-      (reset! addcsv (concat [headers] @newtab))
-      (update-dict "add")
-      ;;(make-rmkdict)
-      (merge-dicts "col")
-      (update-text))
-    (alert "No answer key loaded."
-           :type :error)))
+;; (defn grade-exam [codepos]
+;;   (if (> (count @keytab) 0)
+;;     (let [len (- (count (first @addcsv)) 2)
+;;           extot (* len (log2 num-choices))
+;;           items (range 1 len)
+;;           headers (conj (first @addcsv) "This Exam Score")
+;;           newtab (atom [])]
+;;       (swap! cols postjoin "This Exam Score")
+;;       (when los-list
+;;         (doseq [q los-list]
+;;           (def los-hash (assoc los-hash (str "Q" q) 0)))
+;;         (doseq [n (range (inc (count los-list)))]
+;;           (def los-hash (assoc los-hash (str n) 0)))
+;;         (def los-hash (assoc los-hash "total" 0)))
+;;       (doseq [[_ _ c & ans :as row] (rest @addcsv)]
+;;         (if (> (count  c) 5)
+;;           (let [v (read-string (subs c codepos (inc codepos)))
+;;                 ansvec (vec ans)
+;;                 s (grade-one v ansvec)
+;;                 score (if partial-credit?
+;;                         (+ extot s)
+;;                         s)
+;;                 newrow (conj row (str score))]
+;;             (swap! newtab conj newrow))
+;;           (swap! newtab conj row)))
+;;       (reset! addcsv (concat [headers] @newtab))
+;;       (update-dict "add")
+;;       ;;(make-rmkdict)
+;;       (merge-dicts "col")
+;;       (update-text))
+;;     (alert "No answer key loaded."
+;;            :type :error)))
 
-(defn grade-exam-init []
-  (let [numq (- (count (first @addcsv)) 3)
-        qseq (range 1 (inc numq))
-        codepos (if key-ver-pos key-ver-pos
-                    (input "Examcode position, 0-based: " :choices [0 1 2 3 4 5]))
-        los (if los-list los-list
-                (input "Learning Outcomes?"))
-        partial (if (not (nil? partial-credit?)) partial-credit?
-                    (input "Partial credit? " :choices ["no" "yes"] :value "no"))]
-    (when (not los-list)
-      (def los-list (if (> (count los) 0)
-                      (map read-string (clojure.string/split los #","))
-                      [])))
-    (when (not key-ver-pos)
-      (def key-ver-pos codepos))
-    (when (not partial-credit?)
-      (def partial-credit?
-        (case partial "yes" true "no" false false)))
-    (grade-exam codepos)))
+;; (defn grade-exam-init []
+;;   (let [numq (- (count (first @addcsv)) 3)
+;;         qseq (range 1 (inc numq))
+;;         codepos (if key-ver-pos key-ver-pos
+;;                     (input "Examcode position, 0-based: " :choices [0 1 2 3 4 5]))
+;;         los (if los-list los-list
+;;                 (input "Learning Outcomes?"))
+;;         partial (if (not (nil? partial-credit?)) partial-credit?
+;;                     (input "Partial credit? " :choices ["no" "yes"] :value "no"))]
+;;     (when (not los-list)
+;;       (def los-list (if (> (count los) 0)
+;;                       (map read-string (clojure.string/split los #","))
+;;                       [])))
+;;     (when (not key-ver-pos)
+;;       (def key-ver-pos codepos))
+;;     (when (not partial-credit?)
+;;       (def partial-credit?
+;;         (case partial "yes" true "no" false false)))
+;;     (grade-exam codepos)))
         
-(defn hash->csv [hash]
-  (map (fn [[k v]] [(str k) (str v)]) los-hash))
+;; (defn hash->csv [hash]
+;;   (map (fn [[k v]] [(str k) (str v)]) los-hash))
 
-(defn get-scores [col]
-  (map #((@basedict %) col) (rest (keys @basedict))))
+;; (defn get-scores [col]
+;;   (map #((@basedict %) col) (rest (keys @basedict))))
 
 (defn parse-to-number-list [l]
   (let [nums (filter #(and % (re-matches #"[0-9.]+" %)) l)]
@@ -770,16 +807,16 @@
                              (label :text " "
                                     :size [200 :by vertical-break]
                                     :halign :center)
-                             (button :id :load-key
-                                     :text "Load answer key"
-                                     :listen [:action (fn [e] (read-key))]
-                                     :size [200 :by 30]
-                                     :halign :center)
-                             (button :id :gradebutt
-                                     :text "Grade Exam"
-                                     :listen [:action (fn [e] (grade-exam-init))]
-                                     :size [200 :by 30]
-                                     :halign :center)
+                             ;; (button :id :load-key
+                             ;;         :text "Load answer key"
+                             ;;         :listen [:action (fn [e] (read-key))]
+                             ;;         :size [200 :by 30]
+                             ;;         :halign :center)
+                             ;; (button :id :gradebutt
+                             ;;         :text "Grade Exam"
+                             ;;         :listen [:action (fn [e] (grade-exam-init))]
+                             ;;         :size [200 :by 30]
+                             ;;         :halign :center)
                              (label :text " "
                                     :size [200 :by vertical-break]
                                     :halign :center)
@@ -810,13 +847,13 @@
                                      :size [200 :by 30]
                                      :halign :center)
                              ;; save LOs as csv
-                             (button :id :clear-all-data
-                                     :text "Save LOs CSV"
-                                     :listen [:action
-                                              (fn [e]
-                                                (save-csv (write-csv (hash->csv los-hash)))) ]
-                                     :size [200 :by 30]
-                                     :halign :center)
+                             ;; (button :id :clear-all-data
+                             ;;         :text "Save LOs CSV"
+                             ;;         :listen [:action
+                             ;;                  (fn [e]
+                             ;;                    (save-csv (write-csv (sort (hash->csv los-hash))))) ]
+                             ;;         :size [200 :by 30]
+                             ;;         :halign :center)
                              ;; clear data
                              (label :text " "
                                     :size [200 :by vertical-break]
@@ -852,16 +889,16 @@
                                                :font (seesaw.font/font :name :monospaced))
                                          :size [800 :by 300])
                              ;;show answer key
-                             (text :id :key-text-label
-                                   :text "answer key"
-                                   :size [100 :by 30]
-                                   :halign :center)
-                             (scrollable (text :id :key-text
-                                               :text ""
-                                               :multi-line? true
-                                               :wrap-lines? false
-                                               :font (seesaw.font/font :name :monospaced))
-                                         :size [800 :by 100])
+                             ;; (text :id :key-text-label
+                             ;;       :text "answer key"
+                             ;;       :size [100 :by 30]
+                             ;;       :halign :center)
+                             ;; (scrollable (text :id :key-text
+                             ;;                   :text ""
+                             ;;                   :multi-line? true
+                             ;;                   :wrap-lines? false
+                             ;;                   :font (seesaw.font/font :name :monospaced))
+                             ;;             :size [800 :by 100])
                              ])
                     ])))
 
